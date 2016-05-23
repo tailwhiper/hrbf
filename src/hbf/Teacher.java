@@ -1,6 +1,6 @@
 package hbf;
 
-import javax.xml.bind.UnmarshallerHandler;
+import java.lang.reflect.Array;
 import java.util.Arrays;
 import java.util.List;
 /**
@@ -8,9 +8,12 @@ import java.util.List;
  */
 public class Teacher {
     private Network hbf;
-    private double[] timeSeries;
 
-    public double calcStandardDeviation(List<TrainingSet> series) {
+    public Teacher(Network hbf) {
+        this.hbf = hbf;
+    }
+
+    public double calcMSE(List<TrainingSet> series) {
         double sd = 0;
         for (TrainingSet set : series) {
             sd += Math.pow(set.getOutput() - hbf.getOutput(set.getInputs()), 2);
@@ -18,6 +21,13 @@ public class Teacher {
         return sd / (series.size() - 1);
     }
 
+    public double calcError(List<TrainingSet> series) {
+        double err = 0;
+        for (TrainingSet set : series) {
+            err += Math.pow(set.getOutput() - hbf.getOutput(set.getInputs()), 2);
+        }
+        return err / 2;
+    }
     /*k means teach centers*/
     public void teachKMeans(List<TrainingSet> series,
                             double standardDeviation,
@@ -53,48 +63,62 @@ public class Teacher {
 
     /* Back propogation*/
     public void teachBPG(List<TrainingSet> series,
-                         double standardDeviation,
+                         double maxMSE,
                          int maxIterations,
-                         double koef) {
-        double sd = 1; // standard deviation;
+                         double koefCenters,
+                         double koefWeights,
+                         double koefQ) {
+        double mse = 1; // standard deviation;
+        double err = 0;
         int iterations = 0;
-        while (sd > standardDeviation || iterations++ < maxIterations) {
+        while (mse > maxMSE && iterations < maxIterations) {
 
             for (TrainingSet set : series) {
                 double difference = hbf.getOutput(set.getInputs()) - set.getOutput();//y-d
 
-                hbf.w0 -= koef * difference;
+                hbf.w0 -= koefWeights * difference;
 
                 for (int i = 0; i < hbf.neurons.length; i++) {
 
-                    double[] oldCenters = hbf.neurons[i].centers.clone();
-                    double[][] oldQ = hbf.neurons[i].qMatrix.clone();
+                    double[] oldCenters = Arrays.copyOf(hbf.neurons[i].centers, hbf.neurons[i].centers.length);
+                    double[][] oldQ = new double[hbf.neurons[i].qMatrix.length][];
+                    // copy Q
+                    for (int k = 0; k < hbf.neurons[i].qMatrix.length; k++) {
+                        oldQ[k] = Arrays.copyOf(hbf.neurons[i].qMatrix[k], hbf.neurons[i].qMatrix[k].length);
+                    }
                     double expPart = Math.exp(-0.5 * hbf.neurons[i].u);
+
                     for (int j = 0; j < set.getInputs().length; j++) {
+
                         int qz = 0;//Qjr*zj
+
                         for (int r = 0; r < set.getInputs().length; r++) {
+
                             qz += oldQ[j][r] * hbf.neurons[i].z[j];
                             // Qmatrix
-                            hbf.neurons[i].qMatrix[j][r] += koef
+                            hbf.neurons[i].qMatrix[j][r] += koefQ
                                     * Math.exp(-0.5 * hbf.neurons[i].u)
                                     * difference
                                     * (set.getInputs()[j] - oldCenters[j])
                                     * hbf.neurons[i].z[r];
+
                         }
                         //centers
-                        hbf.neurons[i].centers[j] += koef
+                        hbf.neurons[i].centers[j] += koefCenters
                                 * Math.exp(-0.5 * hbf.neurons[i].u)
                                 * hbf.weights[i]
                                 * difference
                                 * qz;
 
-                        // todo:  teach in order : Q -> c -> w
                     }
                     // weights
-                    hbf.weights[i] -= koef * Math.exp(-0.5 * hbf.neurons[i].u) * difference;
+                    hbf.weights[i] -= koefWeights * Math.exp(-0.5 * hbf.neurons[i].u) * difference;
                 }
             }
-            sd = calcStandardDeviation(series);
+            mse = calcMSE(series);
+            err = calcError(series);
+            System.out.println("iter =" + iterations + "; mse = " + mse + "; err = " + err);
+            iterations++;
         }
 
     }
